@@ -103,6 +103,19 @@
         <data android:scheme="content" android:mimeType="video/*" />
       </intent-filter>
 
+      <!-- Let gallery pickers discover Immich without supplying a URI -->
+      <intent-filter android:label="View in Immich">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:mimeType="image/*" />
+      </intent-filter>
+
+      <intent-filter android:label="View in Immich">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:mimeType="video/*" />
+      </intent-filter>
+
       <!-- immich:// URL scheme handling -->
       <intent-filter>
         <action android:name="android.intent.action.VIEW" />

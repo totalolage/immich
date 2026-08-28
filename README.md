@@ -50,6 +50,12 @@
 > [!NOTE]
 > You can find the main documentation, including installation guides, at https://immich.app/.
 
+## About this fork
+
+This is an unofficial personal Android fork of [Immich](https://github.com/immich-app/immich). It keeps the upstream source and license while making Immich discoverable as a generic Android image and video viewer. The fork installs as `dev.f8y.immich`, alongside the official app.
+
+GitHub Actions builds and signs release APKs on every change to this fork's `main` branch. The stable `immich-f8y.apk` release asset is intended for installation and updates through [Obtanium](https://github.com/ImranR98/Obtainium).
+
 ## Links
 
 - [Documentation](https://docs.immich.app/)

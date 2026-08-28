@@ -1,0 +1,173 @@
+name: Build and release f8y Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: f8y-android-main
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.source.outputs.build }}
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Sync upstream on scheduled runs
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            git remote add upstream https://github.com/immich-app/immich.git
+            git fetch --no-tags upstream main
+            if git merge-base --is-ancestor upstream/main HEAD; then
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git merge --no-edit upstream/main
+            git push origin HEAD:main
+          fi
+
+          echo "build=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-release:
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+
+      - name: Setup Mise toolchain
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+          install_args: '--locked'
+          version: 2026.7.12
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: ''
+
+      - name: Configure release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          : "${ANDROID_KEYSTORE_BASE64:?Missing ANDROID_KEYSTORE_BASE64 secret}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+          : "${ANDROID_STORE_PASSWORD:?Missing ANDROID_STORE_PASSWORD secret}"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile/android/key.jks
+          keytool -list -keystore mobile/android/key.jks -storepass "$ANDROID_STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+
+      - name: Install mobile dependencies
+        run: mise //mobile:install:ci
+
+      - name: Generate mobile code
+        run: mise //mobile:codegen
+
+      - name: Set fork version
+        id: version
+        run: |
+          upstream_version=$(sed -n 's/^version: \([^+]*\).*$/\1/p' mobile/pubspec.yaml)
+          test -n "$upstream_version"
+          echo "name=${upstream_version}-f8y.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${upstream_version}-f8y.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          if [[ "$upstream_version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build signed APK
+        working-directory: mobile
+        env:
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: flutter build apk --release --build-name "$VERSION_NAME" --build-number "$VERSION_CODE"
+
+      - name: Verify APK identity and signature
+        id: apk
+        env:
+          EXPECTED_NAME: ${{ steps.version.outputs.name }}
+          EXPECTED_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          apk=mobile/build/app/outputs/flutter-apk/app-release.apk
+          test -s "$apk"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          test -n "$apksigner"
+          verification=$("$apksigner" verify --verbose --print-certs "$apk")
+          printf '%s\n' "$verification"
+
+          package_id=$(apkanalyzer manifest application-id "$apk")
+          version_name=$(apkanalyzer manifest version-name "$apk")
+          version_code=$(apkanalyzer manifest version-code "$apk")
+          cert_sha256=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "$verification")
+
+          test "$package_id" = dev.f8y.immich
+          test "$version_name" = "$EXPECTED_NAME"
+          test "$version_code" = "$EXPECTED_CODE"
+          test -n "$cert_sha256"
+
+          cp "$apk" immich-f8y.apk
+          echo "package=$package_id" >> "$GITHUB_OUTPUT"
+          echo "cert_sha256=$cert_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          PACKAGE_ID: ${{ steps.apk.outputs.package }}
+          CERT_SHA256: ${{ steps.apk.outputs.cert_sha256 }}
+        run: |
+          {
+            echo "Unofficial Immich Android gallery fork."
+            echo
+            echo "- Source commit: [$SHA]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$SHA)"
+            echo "- Android package: \`$PACKAGE_ID\`"
+            echo "- Version name: \`$VERSION_NAME\`"
+            echo "- Version code: \`$VERSION_CODE\`"
+            echo "- Signing certificate SHA-256: \`$CERT_SHA256\`"
+          } > "$RUNNER_TEMP/release-notes.md"
+
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" immich-f8y.apk --repo "$REPO" --clobber
+          elif [[ "$PRERELEASE" == "true" ]]; then
+            gh release create "$TAG" immich-f8y.apk --repo "$REPO" --target "$SHA" --title "$VERSION_NAME" --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
+          else
+            gh release create "$TAG" immich-f8y.apk --repo "$REPO" --target "$SHA" --title "$VERSION_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
