@@ -132,7 +132,9 @@ jobs:
           package_id=$(apkanalyzer manifest application-id "$apk")
           version_name=$(apkanalyzer manifest version-name "$apk")
           version_code=$(apkanalyzer manifest version-code "$apk")
-          cert_sha256=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "$verification")
+          cert_sha256=$(sed -n 's/^.*certificate SHA-256 digest: //p' <<< "$verification" | head -1)
+
+          printf 'package=%s\nversionName=%s\nversionCode=%s\n' "$package_id" "$version_name" "$version_code"
 
           test "$package_id" = dev.f8y.immich
           test "$version_name" = "$EXPECTED_NAME"
