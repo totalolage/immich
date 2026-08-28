@@ -116,6 +116,21 @@
         <data android:mimeType="video/*" />
       </intent-filter>
 
+      <!-- BSG GCam discovers galleries with ACTION_PICK image/* -->
+      <intent-filter android:label="View in Immich">
+        <action android:name="android.intent.action.PICK" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:mimeType="image/*" />
+      </intent-filter>
+
+      <!-- BSG GCam opens its selected gallery with this camera review action -->
+      <intent-filter android:label="View in Immich">
+        <action android:name="com.android.camera.action.REVIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:mimeType="image/*" />
+        <data android:mimeType="video/*" />
+      </intent-filter>
+
       <!-- immich:// URL scheme handling -->
       <intent-filter>
         <action android:name="android.intent.action.VIEW" />

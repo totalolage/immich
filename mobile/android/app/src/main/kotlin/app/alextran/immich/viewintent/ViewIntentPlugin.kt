@@ -22,6 +22,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 private const val TAG = "ViewIntentPlugin"
+private const val CAMERA_REVIEW_ACTION = "com.android.camera.action.REVIEW"
 
 class ViewIntentPlugin : FlutterPlugin, ActivityAware, PluginRegistry.NewIntentListener, ViewIntentHostApi {
   private var context: Context? = null
@@ -70,7 +71,7 @@ class ViewIntentPlugin : FlutterPlugin, ActivityAware, PluginRegistry.NewIntentL
     }
     val intent = unconsumedIntent ?: activity?.intent
 
-    if (intent?.action != Intent.ACTION_VIEW) {
+    if (intent?.action != Intent.ACTION_VIEW && intent?.action != CAMERA_REVIEW_ACTION) {
       callback(Result.success(null))
       return
     }

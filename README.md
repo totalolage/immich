@@ -56,6 +56,8 @@ This is an unofficial personal Android fork of [Immich](https://github.com/immic
 
 GitHub Actions builds and signs release APKs on every change to this fork's `main` branch. The stable `immich-f8y.apk` release asset is intended for installation and updates through [Obtanium](https://github.com/ImranR98/Obtainium).
 
+The camera integration targets BSG GCam `org.codeaurora.snapcam` version `9.7.047.702121536.18`. That build discovers galleries with `ACTION_PICK image/*`. It opens the selected package with `com.android.camera.action.REVIEW`. Run `mobile/scripts/check_f8y_gallery_intents.sh [ADB_SERIAL]` to check an installed build.
+
 ## Links
 
 - [Documentation](https://docs.immich.app/)
